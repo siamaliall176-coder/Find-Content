@@ -1,0 +1,2871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Find Content</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g fill="%23167b8a"><polygon points="50,4 36,54 60,46" transform="rotate(0 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(45 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(90 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(135 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(180 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(225 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(270 50 50)"/><polygon points="50,4 36,54 60,46" transform="rotate(315 50 50)"/></g></svg>'>
+<style>
+  :root {
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --border: #e5e7eb;
+    --border-strong: #d1d5db;
+    --text: #111827;
+    --muted: #6b7280;
+    --accent: #111111;
+    --accent-hover: #000000;
+    --chip-bg: #f3f4f6;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+    --radius: 14px;
+    --sidebar-w: 260px;
+    --sidebar-bg: #fafafa;
+    --sidebar-border: #ececec;
+    --sidebar-hover: #f0f0f0;
+    --sidebar-active: #e6e6e6;
+  }
+  body.sidebar-collapsed { --sidebar-w: 56px; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: #fafafa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding-left: var(--sidebar-w);
+    transition: padding-left .22s ease;
+  }
+  .app {
+    width: 100%;
+    max-width: 760px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* ===== Chat mode (after first submit) =====
+     Keep the column centered within the area to the right of the sidebar. */
+  body.has-output {
+    align-items: flex-start;
+    justify-content: center;
+  }
+  body.has-output .app {
+    margin: 0 auto;
+    padding: 24px 16px 140px;
+    min-height: 100vh;
+  }
+  body.has-output .prompt-bar {
+    position: fixed;
+    left: calc(var(--sidebar-w) + (100vw - var(--sidebar-w)) / 2);
+    bottom: 24px;
+    transform: translateX(-50%);
+    width: calc(100vw - var(--sidebar-w) - 48px);
+    max-width: 728px;
+    z-index: 50;
+    box-shadow: 0 6px 28px rgba(0,0,0,.10), 0 1px 3px rgba(0,0,0,.06);
+    transition: left .22s ease, width .22s ease, box-shadow .15s ease;
+  }
+
+  /* ===== Sidebar (Grok-replica, black & white) ===== */
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--sidebar-border);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 10px;
+    transition: width .22s ease;
+    z-index: 100;
+    overflow: hidden;
+  }
+  .sidebar-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px 14px;
+    flex-shrink: 0;
+  }
+  .brand-mark {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    color: #111;
+  }
+  .brand-mark svg { width: 30px; height: 30px; }
+  .signin-brand-mark { width: 36px; height: 36px; }
+  .collapse-btn {
+    width: 30px; height: 30px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #6b7280;
+    transition: background .15s ease, transform .22s ease;
+  }
+  .collapse-btn:hover { background: var(--sidebar-hover); color: #111; }
+  .collapse-btn svg { width: 16px; height: 16px; }
+  body.sidebar-collapsed .collapse-btn { transform: rotate(180deg); }
+
+  .sidebar-section {
+    display: flex; flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .sidebar-section + .sidebar-section { margin-top: 14px; }
+
+  .sidebar-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #111;
+    width: 100%;
+    text-align: left;
+    font-weight: 500;
+    font-family: inherit;
+    transition: background .12s ease;
+  }
+  .sidebar-item:hover { background: var(--sidebar-hover); }
+  .sidebar-item.active { background: var(--sidebar-active); }
+  .sidebar-item svg { width: 16px; height: 16px; flex-shrink: 0; color: #111; }
+  .sidebar-item .label { white-space: nowrap; overflow: hidden; }
+
+  .search-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: text;
+  }
+  .search-row:hover { background: var(--sidebar-hover); }
+  .search-row svg { width: 16px; height: 16px; color: #6b7280; flex-shrink: 0; }
+  .search-row input {
+    border: none; outline: none; background: transparent;
+    font-size: 14px;
+    flex: 1;
+    color: #111;
+    font-family: inherit;
+    min-width: 0;
+  }
+  .search-row input::placeholder { color: #9ca3af; }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 6px 10px 4px;
+  }
+
+  .history-scroll {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 4px;
+    padding-right: 2px;
+  }
+  .history-scroll::-webkit-scrollbar { width: 6px; }
+  .history-scroll::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 6px; }
+
+  .history-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #9ca3af;
+    padding: 12px 10px 4px;
+  }
+  .history-item {
+    display: flex;
+    align-items: center;
+    padding: 7px 4px 7px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #374151;
+    transition: background .12s ease;
+    position: relative;
+    gap: 4px;
+  }
+  .history-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .pin-indicator {
+    width: 11px;
+    height: 11px;
+    color: #6b7280;
+    flex-shrink: 0;
+    margin-right: 4px;
+  }
+  .history-item:hover { background: var(--sidebar-hover); }
+  .history-item.active { background: var(--sidebar-active); color: #111; }
+
+  .item-menu-btn {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 16px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity .15s ease, background .12s ease;
+    flex-shrink: 0;
+    font-family: inherit;
+    padding: 0;
+  }
+  .item-menu-btn:hover { background: rgba(0,0,0,.08); color: #111; }
+  .history-item:hover .item-menu-btn,
+  .history-item.active .item-menu-btn,
+  .item-menu-btn.menu-open { opacity: 1; }
+
+  /* Dropdown menu floating at fixed position next to clicked dots */
+  .item-menu {
+    position: fixed;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.12), 0 2px 4px rgba(0,0,0,.06);
+    padding: 4px;
+    min-width: 150px;
+    z-index: 200;
+    display: none;
+    animation: menuPop .12s ease;
+  }
+  .item-menu.visible { display: block; }
+  @keyframes menuPop {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .item-menu-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    text-align: left;
+    color: #111;
+    font-family: inherit;
+    transition: background .1s ease;
+  }
+  .item-menu-option:hover { background: #f3f4f6; }
+  .item-menu-option.danger { color: #b91c1c; }
+  .item-menu-option.danger:hover { background: #fee2e2; }
+  .item-menu-option svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+  /* Confirm-delete modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.42);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    animation: fadeIn .14s ease;
+  }
+  .modal-overlay.visible { display: flex; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal-card {
+    background: #fff;
+    border-radius: 18px;
+    padding: 28px 28px 22px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 24px 64px rgba(0,0,0,.28);
+    text-align: center;
+    animation: modalPop .2s ease;
+  }
+  @keyframes modalPop {
+    from { opacity: 0; transform: scale(.95) translateY(8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .modal-icon {
+    width: 44px;
+    height: 44px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    background: #fee2e2;
+    color: #b91c1c;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-icon svg { width: 22px; height: 22px; }
+  .modal-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 6px;
+  }
+  .modal-message {
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 22px;
+    line-height: 1.45;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  }
+  .modal-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    color: #111;
+    font-family: inherit;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  .modal-btn:hover { background: #f3f4f6; }
+  .modal-btn.danger {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+  }
+  .modal-btn.danger:hover { background: #b91c1c; border-color: #b91c1c; }
+  .history-empty {
+    padding: 12px 10px;
+    color: #9ca3af;
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .sidebar-bottom {
+    border-top: 1px solid var(--sidebar-border);
+    margin-top: 8px;
+    flex-shrink: 0;
+    padding-top: 6px;
+    position: relative;
+  }
+  .profile-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 8px;
+    border-radius: 10px;
+    transition: background .12s ease;
+  }
+  .profile-row:hover { background: var(--sidebar-hover); }
+  .user-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: #f3f4f6;
+    color: #9ca3af;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600;
+    font-size: 13px;
+    flex-shrink: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .user-avatar.signed-in {
+    background: #111; color: #fff; border-color: #111;
+  }
+  .user-avatar img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .user-avatar svg {
+    width: 18px; height: 18px; color: #9ca3af;
+  }
+  .user-info { font-size: 13px; overflow: hidden; line-height: 1.2; flex: 1; min-width: 0; }
+  .user-name { font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-email { color: #6b7280; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .profile-toggle {
+    width: 26px; height: 26px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #6b7280;
+    flex-shrink: 0;
+    margin-left: auto;
+    transition: background .12s ease;
+  }
+  .profile-toggle:hover { background: rgba(0,0,0,.08); color: #111; }
+  .profile-toggle svg { width: 14px; height: 14px; transition: transform .22s ease; }
+  .profile-toggle.open svg { transform: rotate(180deg); }
+
+  .profile-panel {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 6px;
+    right: 6px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 -6px 22px rgba(0,0,0,.08), 0 1px 4px rgba(0,0,0,.05);
+    padding: 4px;
+    z-index: 80;
+    display: none;
+  }
+  .profile-panel:not([hidden]).visible { display: block; animation: menuPop .14s ease; }
+  .profile-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #111;
+    font-family: inherit;
+    text-align: left;
+    transition: background .1s ease;
+  }
+  .profile-action:hover { background: #f3f4f6; }
+  .profile-action svg { width: 14px; height: 14px; flex-shrink: 0; }
+  /* Honor the hidden attribute even though .profile-action uses display: flex */
+  .profile-action[hidden] { display: none !important; }
+
+  /* Collapsed sidebar — keep avatar + toggle visible, hide info */
+  body.sidebar-collapsed .profile-row { padding: 8px 0; justify-content: center; gap: 0; }
+  body.sidebar-collapsed .profile-toggle { display: none; }
+  body.sidebar-collapsed .profile-panel { display: none !important; }
+
+  /* ===== Sign-in screen (Grok-style full-screen split) ===== */
+  .signin-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 600;
+    display: none;
+    background: #fff;
+  }
+  .signin-screen.visible { display: flex; animation: fadeIn .18s ease; }
+
+  .signin-left {
+    flex: 1;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    padding: 32px 48px;
+    position: relative;
+    overflow-y: auto;
+  }
+  .signin-brand {
+    color: #111;
+    margin-bottom: auto;
+  }
+  .signin-brand-mark { width: 30px; height: 30px; }
+
+  .signin-form-wrap {
+    width: 100%;
+    max-width: 380px;
+    margin: 0 auto;
+    padding: 24px 0;
+  }
+  .signin-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #111;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+    text-align: center;
+  }
+  .signin-subtitle {
+    font-size: 14px;
+    color: #6b7280;
+    margin: 0 0 28px;
+    line-height: 1.45;
+    text-align: center;
+  }
+  .signin-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+    text-align: left;
+  }
+  .signin-input {
+    margin-bottom: 18px !important;
+  }
+  .signin-submit {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    border: 1px solid #111;
+    background: #111;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background .12s ease;
+  }
+  .signin-submit:hover { background: #000; }
+  .signin-cancel-link {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 8px;
+    font-family: inherit;
+    text-align: center;
+    transition: color .12s ease;
+  }
+  .signin-cancel-link:hover { color: #111; }
+
+  .signin-footer {
+    margin-top: auto;
+    font-size: 12px;
+    color: #9ca3af;
+    text-align: center;
+    padding-top: 16px;
+  }
+  .signin-footer a {
+    color: #6b7280;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Right panel — dark gradient with Capscity glyph */
+  .signin-right {
+    flex: 1;
+    background:
+      radial-gradient(circle at 70% 50%, rgba(120, 120, 130, .35) 0%, transparent 55%),
+      radial-gradient(circle at 30% 80%, rgba(70, 70, 80, .25) 0%, transparent 50%),
+      linear-gradient(135deg, #1a1a1d 0%, #2c2c30 45%, #0d0d10 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .signin-right::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(255,255,255,0.08) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .signin-hero { position: relative; z-index: 2; }
+  .signin-hero-mark {
+    width: 320px;
+    height: 320px;
+    filter: drop-shadow(0 12px 40px rgba(0,0,0,0.45));
+    animation: floatY 6s ease-in-out infinite;
+  }
+  @keyframes floatY {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-10px); }
+  }
+
+  /* Avatar upload (re-used inside the split layout) */
+  .avatar-upload {
+    margin: 4px auto 22px;
+    text-align: center;
+  }
+  .avatar-preview {
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    background: #f3f4f6;
+    border: 2px dashed #d1d5db;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: background .15s ease, border-color .15s ease, transform .12s ease;
+  }
+  .avatar-preview:hover { background: #e5e7eb; border-color: #9ca3af; transform: scale(1.02); }
+  .avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar-preview .avatar-default-icon {
+    width: 36px; height: 36px; color: #9ca3af;
+  }
+  .avatar-upload-hint {
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  .modal-input {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+    transition: border-color .12s ease;
+  }
+  .modal-input:focus { border-color: #111; }
+  .modal-btn.primary {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+  }
+  .modal-btn.primary:hover { background: #000; border-color: #000; }
+
+  /* Mobile: stack vertically, hide hero panel */
+  @media (max-width: 720px) {
+    .signin-screen { flex-direction: column; }
+    .signin-left { padding: 24px 22px; }
+    .signin-right { display: none; }
+  }
+
+  /* Collapsed state — hide text & secondary content, keep icons */
+  body.sidebar-collapsed .sidebar { padding: 14px 8px; }
+  body.sidebar-collapsed .sidebar-top { justify-content: center; flex-direction: column; gap: 6px; padding: 4px 0 14px; }
+  body.sidebar-collapsed .sidebar-item .label,
+  body.sidebar-collapsed .search-row input,
+  body.sidebar-collapsed .section-label,
+  body.sidebar-collapsed .history-group-label,
+  body.sidebar-collapsed .history-item,
+  body.sidebar-collapsed .history-empty,
+  body.sidebar-collapsed .user-info { display: none; }
+  body.sidebar-collapsed .sidebar-item { justify-content: center; padding: 8px; }
+  body.sidebar-collapsed .search-row { justify-content: center; padding: 8px; }
+  body.sidebar-collapsed .sidebar-bottom { justify-content: center; padding: 10px 0 4px; }
+
+  /* Mobile: overlay sidebar */
+  @media (max-width: 720px) {
+    body { padding-left: 0; }
+    .sidebar { transform: translateX(-100%); transition: transform .22s ease, width .22s ease; }
+    body.sidebar-open .sidebar { transform: translateX(0); }
+    body.has-output .prompt-bar {
+      left: 50%;
+      width: calc(100vw - 32px);
+    }
+  }
+  /* Prompt Bar */
+  .prompt-bar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .icon-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background .15s ease;
+  }
+  .icon-btn:hover { background: #f9fafb; }
+  .icon-btn svg { width: 18px; height: 18px; color: #374151; }
+  .chips {
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--chip-bg);
+    border-radius: 10px;
+    padding: 4px 6px 4px 8px;
+    font-size: 12px;
+    color: #111827;
+    max-width: 180px;
+  }
+  .chip .thumb {
+    width: 22px; height: 22px; border-radius: 4px; object-fit: cover; background: #ddd;
+  }
+  .chip .name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .x {
+    cursor: pointer; color: #6b7280; font-weight: 600; padding: 0 4px;
+  }
+  .chip .x:hover { color: #111; }
+  .input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 15px;
+    color: var(--text);
+    padding: 6px 4px;
+    min-width: 120px;
+  }
+  .input::placeholder { color: #9ca3af; }
+  .send {
+    background: var(--accent);
+    border: none;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: white;
+    transition: background .15s ease;
+    flex-shrink: 0;
+  }
+  .send:hover:not(:disabled) { background: var(--accent-hover); }
+  .send:disabled { opacity: .5; cursor: not-allowed; }
+  .send svg { width: 16px; height: 16px; }
+  #fileInput { display: none; }
+
+  /* Output Card */
+  .output {
+    margin-top: 22px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    display: none;
+  }
+  .output.visible { display: block; }
+  .preview {
+    background: #f3f4f6;
+    padding: 14px;
+    display: flex; gap: 10px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview img {
+    max-width: 160px; max-height: 160px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+  }
+  .caption-body {
+    padding: 18px 20px;
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: #1f2937;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .caption-body strong { color: #111; }
+  .meta-row {
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .meta-row span b { color: #111; font-weight: 600; }
+  .actions {
+    display: flex; gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    background: #fafafa;
+    flex-wrap: wrap;
+  }
+  .btn {
+    border: 1px solid var(--border-strong);
+    background: #fff;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .15s ease;
+  }
+  .btn:hover { background: #f3f4f6; }
+  .btn.primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn svg { width: 14px; height: 14px; }
+
+  /* Status / states */
+  .status {
+    margin-top: 12px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    min-height: 18px;
+  }
+  .status.error { color: #b91c1c; }
+
+  /* ===== Chat thread ===== */
+  .thread {
+    margin-top: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .msg-user {
+    align-self: flex-end;
+    max-width: 78%;
+    background: #f3f4f6;
+    border: 1px solid var(--border);
+    border-radius: 18px 18px 4px 18px;
+    padding: 10px 12px;
+    font-size: 14px;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .msg-user .imgs {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .msg-user .imgs img {
+    width: 110px; height: 110px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    cursor: zoom-in;
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  .msg-user .imgs img:hover { opacity: 0.85; transform: scale(1.02); }
+
+  /* Image preview lightbox */
+  .lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.88);
+    z-index: 700;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    cursor: zoom-out;
+    animation: fadeIn .15s ease;
+  }
+  .lightbox-overlay.visible { display: flex; }
+  .lightbox-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 10px;
+    box-shadow: 0 16px 56px rgba(0,0,0,0.55);
+    cursor: default;
+    animation: lightboxIn .22s ease;
+  }
+  @keyframes lightboxIn {
+    from { opacity: 0; transform: scale(.94); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .lightbox-close {
+    position: absolute;
+    top: 22px; right: 22px;
+    width: 44px; height: 44px;
+    border: none;
+    background: rgba(255,255,255,0.10);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s ease, transform .15s ease;
+    font-family: inherit;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .lightbox-close:hover { background: rgba(255,255,255,0.20); transform: scale(1.08); }
+  .lightbox-hint {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+    letter-spacing: .04em;
+  }
+  .msg-user .prompt-text {
+    line-height: 1.4;
+  }
+  .msg-assistant {
+    align-self: flex-start;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* ===== Grok-style square loader ===== */
+  .grok-loader {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+  .grok-loader span {
+    background: #111;
+    border-radius: 3px;
+    animation: grokPulse 1.1s ease-in-out infinite;
+  }
+  .grok-loader span:nth-child(1) { animation-delay: 0s; }
+  .grok-loader span:nth-child(2) { animation-delay: .12s; }
+  .grok-loader span:nth-child(3) { animation-delay: .36s; }
+  .grok-loader span:nth-child(4) { animation-delay: .24s; }
+  @keyframes grokPulse {
+    0%, 100% { opacity: .25; transform: scale(.85); }
+    50%      { opacity: 1;   transform: scale(1); }
+  }
+
+  /* ===== Loading row with fading status label ===== */
+  .loading-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 2px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .loading-label {
+    position: relative;
+    height: 20px;
+    overflow: hidden;
+    flex: 1;
+  }
+  .loading-label span {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transform: translateY(6px);
+    animation: labelFade 12s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  /* 6 phases, each shown ~2s with fade in/out */
+  .loading-label span:nth-child(1) { animation-delay: 0s; }
+  .loading-label span:nth-child(2) { animation-delay: 2s; }
+  .loading-label span:nth-child(3) { animation-delay: 4s; }
+  .loading-label span:nth-child(4) { animation-delay: 6s; }
+  .loading-label span:nth-child(5) { animation-delay: 8s; }
+  .loading-label span:nth-child(6) { animation-delay: 10s; }
+  @keyframes labelFade {
+    0%, 14%   { opacity: 0; transform: translateY(6px); }
+    3%, 13%   { opacity: 1; transform: translateY(0); }
+    17%, 100% { opacity: 0; transform: translateY(-6px); }
+  }
+  .spinner { /* legacy, no longer used */
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid #e5e7eb;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Assistant caption card refined for chat */
+  body.has-output .output {
+    margin-top: 4px;
+    border-radius: 14px;
+    animation: fadeUp .35s ease;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  /* Hide the duplicate preview thumbnail inside the output card in chat mode
+     (the image now lives in the user message bubble above) */
+  body.has-output .preview { display: none; }
+
+  /* Drag overlay */
+  .drag-overlay {
+    position: fixed; inset: 0;
+    background: rgba(17, 17, 17, .06);
+    border: 3px dashed var(--accent);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 999;
+    pointer-events: none;
+    font-size: 18px; color: var(--accent); font-weight: 600;
+  }
+  .drag-overlay.active { display: flex; }
+</style>
+</head>
+<body>
+
+<!-- ===== Sidebar (Grok replica, B&W) ===== -->
+<aside class="sidebar" id="sidebar" aria-label="Sidebar">
+  <div class="sidebar-top">
+    <div class="brand-mark" title="Find Content">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g fill="#167b8a">
+          <polygon points="50,4 36,54 60,46" transform="rotate(0 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(45 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(90 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(135 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(180 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(225 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(270 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(315 50 50)"/>
+        </g>
+      </svg>
+    </div>
+    <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"/>
+        <polyline points="19 18 13 12 19 6"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="search-row" id="searchRow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="historySearch" placeholder="Search" autocomplete="off"/>
+    </div>
+    <button class="sidebar-item active" id="newChatBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      <span class="label">New Chat</span>
+    </button>
+  </div>
+
+  <div class="history-scroll" id="historyScroll">
+    <div class="section-label">History</div>
+    <div id="historyList"></div>
+  </div>
+
+  <div class="sidebar-bottom" id="sidebarBottom">
+    <div class="profile-panel" id="profilePanel" hidden>
+      <button class="profile-action" id="signInBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        <span>Sign in</span>
+      </button>
+      <button class="profile-action" id="signOutBtn" type="button" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>Sign out</span>
+      </button>
+    </div>
+    <div class="profile-row" id="profileRow">
+      <div class="user-avatar" id="userAvatar"></div>
+      <div class="user-info">
+        <div class="user-name" id="userName">Guest</div>
+        <div class="user-email" id="userEmail">Not signed in</div>
+      </div>
+      <button class="profile-toggle" id="profileToggle" type="button" aria-label="Open profile menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </div>
+  </div>
+</aside>
+
+<div class="app" id="app">
+  <!-- Prompt Bar (mirrors CaptionForge) -->
+  <form class="prompt-bar" id="promptForm" autocomplete="off">
+    <button type="button" class="icon-btn" id="addBtn" title="Add image">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+    <div class="chips" id="chips"></div>
+    <input class="input" id="textInput" type="text" placeholder="Generate a caption of these image" />
+    <button type="submit" class="send" id="sendBtn" title="Generate" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+    </button>
+    <input type="file" id="fileInput" accept="image/png, image/jpeg, image/jpg, image/webp" multiple />
+  </form>
+
+  <div class="status" id="status"></div>
+
+  <!-- Chat thread (user message + loader) -->
+  <div class="thread" id="thread" style="display:none;">
+    <div class="msg-user" id="userMsg"></div>
+    <div class="msg-assistant" id="assistantMsg">
+      <div class="loading-row" id="loadingRow">
+        <div class="grok-loader" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="loading-label">
+          <span>Analyzing your image…</span>
+          <span>Reading the brand details…</span>
+          <span>Extracting contact info…</span>
+          <span>Crafting the hook…</span>
+          <span>Writing service highlights…</span>
+          <span>Polishing the caption…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="output" id="output">
+    <div class="preview" id="preview"></div>
+    <div class="caption-body" id="captionBody"></div>
+    <div class="actions">
+      <button class="btn primary" id="copyBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy caption
+      </button>
+      <button class="btn" id="regenBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Regenerate
+      </button>
+      <button class="btn" id="newBtn" style="display:none" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New caption
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="drag-overlay" id="dragOverlay">Drop image to upload</div>
+
+<!-- Image preview lightbox -->
+<div class="lightbox-overlay" id="lightboxOverlay" role="dialog" aria-modal="true" aria-label="Image preview">
+  <img class="lightbox-img" id="lightboxImg" alt="Preview">
+  <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close">×</button>
+  <div class="lightbox-hint">Click anywhere or press Esc to close</div>
+</div>
+
+<!-- Floating per-item action menu (3-dot dropdown) -->
+<div class="item-menu" id="itemMenu" role="menu"></div>
+
+<!-- Sign-in screen (full-screen split layout, Grok-style) -->
+<div class="signin-screen" id="signInModal" role="dialog" aria-modal="true">
+  <!-- LEFT: form panel -->
+  <div class="signin-left">
+    <div class="signin-brand">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="signin-brand-mark">
+        <g fill="#167b8a">
+          <polygon points="50,4 36,54 60,46" transform="rotate(0 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(45 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(90 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(135 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(180 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(225 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(270 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(315 50 50)"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="signin-form-wrap">
+      <h1 class="signin-title">Sign in to Find Content</h1>
+      <p class="signin-subtitle">Personalize your workspace — add a photo and your name.</p>
+
+      <div class="avatar-upload" id="avatarUpload">
+        <div class="avatar-preview" id="avatarPreview" data-data-url="">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="avatar-default-icon"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <div class="avatar-upload-hint">Click to upload photo</div>
+        <input type="file" id="avatarInput" accept="image/png,image/jpeg,image/jpg,image/webp" style="display:none">
+      </div>
+
+      <label class="signin-label" for="nameInput">Your name</label>
+      <input type="text" id="nameInput" class="modal-input signin-input" placeholder="Enter your name" maxlength="40" autocomplete="off">
+
+      <button class="modal-btn primary signin-submit" id="signInSaveBtn" type="button">Sign in</button>
+      <button class="signin-cancel-link" id="signInCancelBtn" type="button">Cancel</button>
+    </div>
+
+    <div class="signin-footer">
+      <span>By continuing, you agree to Capscity's </span>
+      <a href="#" onclick="return false">Terms</a>
+      <span> and </span>
+      <a href="#" onclick="return false">Privacy Policy</a>
+      <span>.</span>
+    </div>
+  </div>
+
+  <!-- RIGHT: branded hero panel -->
+  <div class="signin-right" aria-hidden="true">
+    <div class="signin-hero">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" class="signin-hero-mark">
+        <defs>
+          <linearGradient id="fcTealGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%"  stop-color="#1ea2b5"/>
+            <stop offset="100%" stop-color="#0e6b78"/>
+          </linearGradient>
+        </defs>
+        <g fill="url(#fcTealGrad)">
+          <polygon points="50,4 36,54 60,46" transform="rotate(0 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(45 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(90 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(135 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(180 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(225 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(270 50 50)"/>
+          <polygon points="50,4 36,54 60,46" transform="rotate(315 50 50)"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- Delete-confirm modal -->
+<div class="modal-overlay" id="deleteModal" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
+        <path d="M10 11v6"/><path d="M14 11v6"/>
+      </svg>
+    </div>
+    <div class="modal-title">Are You Sure You Want To Delete?</div>
+    <div class="modal-message">This will permanently remove this session from your history.</div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="backHomeBtn" type="button">Back Home</button>
+      <button class="modal-btn danger" id="confirmDeleteBtn" type="button">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   Capscity — Organic Long Caption Generator
+   - Zero API-key / config in the UI (strictly forbidden per spec)
+   - Uses Chrome built-in on-device AI (Prompt API / window.LanguageModel)
+     for multimodal image -> caption generation when available.
+   - Graceful deterministic fallback if the browser AI is unavailable,
+     so the UI is never broken.
+   ===================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const fileInput = $('fileInput');
+const addBtn = $('addBtn');
+const chipsEl = $('chips');
+const textInput = $('textInput');
+const sendBtn = $('sendBtn');
+const statusEl = $('status');
+const outputEl = $('output');
+const previewEl = $('preview');
+const captionBodyEl = $('captionBody');
+const appEl = $('app');
+const threadEl = $('thread');
+const userMsgEl = $('userMsg');
+const loadingRowEl = $('loadingRow');
+const copyBtn = $('copyBtn');
+const regenBtn = $('regenBtn');
+const newBtn = $('newBtn');
+const dragOverlay = $('dragOverlay');
+
+let uploads = []; // [{file, url, name}]
+let lastCaption = '';
+
+/* ---------- File handling ---------- */
+addBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  addFiles(Array.from(e.target.files || []));
+  fileInput.value = '';
+});
+
+// Drag & drop
+window.addEventListener('dragover', (e) => {
+  if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+    e.preventDefault();
+    dragOverlay.classList.add('active');
+  }
+});
+window.addEventListener('dragleave', (e) => {
+  if (e.target === document.documentElement || e.clientX === 0) {
+    dragOverlay.classList.remove('active');
+  }
+});
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragOverlay.classList.remove('active');
+  const files = Array.from(e.dataTransfer.files || []).filter(f => /^image\//.test(f.type));
+  addFiles(files);
+});
+// Paste image
+window.addEventListener('paste', (e) => {
+  const items = Array.from(e.clipboardData?.items || []);
+  const files = items.filter(i => i.kind === 'file' && i.type.startsWith('image/'))
+                     .map(i => i.getAsFile())
+                     .filter(Boolean);
+  if (files.length) addFiles(files);
+});
+
+function addFiles(files) {
+  files.forEach((f, idx) => {
+    if (!f.type.startsWith('image/')) return;
+    const url = URL.createObjectURL(f);
+    const shortName = (f.name || `image-${Date.now()}`).slice(0, 18);
+    uploads.push({ file: f, url, name: shortName });
+  });
+  renderChips();
+  refreshSendState();
+}
+
+function renderChips() {
+  chipsEl.innerHTML = '';
+  uploads.forEach((u, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `
+      <img class="thumb" src="${u.url}" alt="">
+      <span class="name">${escapeHtml(u.name)}</span>
+      <span class="x" data-i="${i}" title="Remove">×</span>
+    `;
+    chip.querySelector('.x').addEventListener('click', (ev) => {
+      const idx = +ev.target.dataset.i;
+      URL.revokeObjectURL(uploads[idx].url);
+      uploads.splice(idx, 1);
+      renderChips();
+      refreshSendState();
+    });
+    chipsEl.appendChild(chip);
+  });
+}
+
+function refreshSendState() {
+  sendBtn.disabled = uploads.length === 0;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- Submit ---------- */
+$('promptForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (uploads.length === 0) return;
+  await generate();
+});
+
+regenBtn.addEventListener('click', generate);
+newBtn.addEventListener('click', () => {
+  uploads.forEach(u => URL.revokeObjectURL(u.url));
+  uploads = [];
+  renderChips();
+  refreshSendState();
+  outputEl.classList.remove('visible');
+  document.body.classList.remove('has-output');
+  threadEl.style.display = 'none';
+  userMsgEl.innerHTML = '';
+  loadingRowEl.style.display = 'flex';
+  captionBodyEl.innerHTML = '';
+  previewEl.innerHTML = '';
+  textInput.value = '';
+  statusEl.textContent = '';
+});
+
+copyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(lastCaption);
+    copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied';
+    setTimeout(() => {
+      copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy caption';
+    }, 1500);
+  } catch (e) {
+    setStatus('Could not copy to clipboard', true);
+  }
+});
+
+/* ---------- Generation ---------- */
+async function generate() {
+  if (uploads.length === 0) return;
+  sendBtn.disabled = true;
+  regenBtn.disabled = true;
+  setStatus('');
+
+  // ===== Chat-mode UI: show user message bubble + Grok loader =====
+  document.body.classList.add('has-output');
+  threadEl.style.display = 'flex';
+  loadingRowEl.style.display = 'flex';
+  outputEl.classList.remove('visible');
+
+  // Build the user message bubble (image thumbnails + their prompt text)
+  const promptText = (textInput.value.trim() || 'Generate a caption of these image');
+  userMsgEl.innerHTML = '';
+  const imgsWrap = document.createElement('div');
+  imgsWrap.className = 'imgs';
+  uploads.forEach(u => {
+    const img = document.createElement('img');
+    img.src = u.url;
+    imgsWrap.appendChild(img);
+  });
+  userMsgEl.appendChild(imgsWrap);
+  const pt = document.createElement('div');
+  pt.className = 'prompt-text';
+  pt.textContent = promptText;
+  userMsgEl.appendChild(pt);
+
+  // Smooth scroll so the bubble + loader are visible
+  setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 30);
+
+  // Preview (kept for non-chat fallback paths, hidden via CSS in chat mode)
+  previewEl.innerHTML = '';
+  uploads.forEach(u => {
+    const img = document.createElement('img');
+    img.src = u.url;
+    previewEl.appendChild(img);
+  });
+
+  const userPrompt = textInput.value.trim() || 'Generate a caption of these image';
+  const sysPrompt = buildSystemPrompt();
+  const userMessage = buildUserPrompt(userPrompt);
+
+  let caption = '';
+  try {
+    caption = await runChromeBuiltInAI(sysPrompt, userMessage, uploads.map(u => u.file));
+  } catch (err) {
+    console.warn('Built-in AI unavailable, using deterministic fallback.', err);
+    caption = buildFallbackCaption(uploads, userPrompt);
+    setStatus('On-device AI unavailable — rendered a structured template caption. Enable Chrome built-in AI for richer output.', true);
+  }
+
+  if (!caption || caption.length < 30) {
+    caption = buildFallbackCaption(uploads, userPrompt);
+  }
+
+  caption = sanitizeCaption(caption);
+  lastCaption = caption;
+  captionBodyEl.innerHTML = renderCaption(caption);
+  // Hide the Grok loader, reveal the caption card under the user bubble
+  loadingRowEl.style.display = 'none';
+  outputEl.classList.add('visible');
+  document.body.classList.add('has-output');
+  if (!statusEl.classList.contains('error')) setStatus('');
+  sendBtn.disabled = false;
+  regenBtn.disabled = false;
+}
+
+function setStatus(html, isError=false) {
+  statusEl.innerHTML = html;
+  statusEl.classList.toggle('error', isError);
+}
+
+/* ---------- System / User Prompt Construction ---------- */
+function buildSystemPrompt() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthYear = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return `You are Capscity — an elite social-media copywriter specializing in FULLY ORGANIC, LONG-FORM Facebook post captions for real products and services. You write at the level of a top human brand strategist — every line must feel hand-crafted, never templated, never robotic.
+
+TEMPORAL CONTEXT — CRITICAL:
+• Today's date is ${now.toDateString()}.
+• The current year is ${currentYear}. The current month/year is ${currentMonthYear}.
+• If you reference any year, season, "this year", "next year", or any date in the caption, it MUST be based on this current date. NEVER use 2023, 2024, or any past year unless explicitly historical. When in doubt, prefer phrasing like "this season" or omit the year entirely.
+
+═══════════════════════════════════════════════════════════════════════════
+BRAND NAME ACCURACY — ZERO TOLERANCE FOR SPELLING DRIFT
+═══════════════════════════════════════════════════════════════════════════
+Brand/company names in the caption MUST be 100% letter-perfect to what is printed in the image. A misspelled brand name is the WORST possible failure — it ruins the entire caption. To prevent this:
+
+1. PASS 1 — Read the brand name LETTER BY LETTER from the logo or header text. Don't guess. If a letter is ambiguous, choose the option that matches the website/email domain you'll find later.
+
+2. PASS 2 — Find the website URL and email address in the image. The domain root (the part before .com / .bd / .academy / .co etc.) IS the canonical brand spelling. Cross-check letter-by-letter:
+   • If URL says "eicrasoft.com" → brand is "Eicra Soft" (NEVER "Eicra Sortz", "Eicrasoftz", "Eicra Soft Z").
+   • If URL says "neuratech.academy" → brand is "NeuraTech" / "Neuratech Academy".
+   • If URL says "sun.com.bd" → brand is "Sun" / "Sun.com.bd".
+
+3. PASS 3 — Run a final consistency check. The brand name as you've written it MUST match the domain spelling EXACTLY. If they don't match, re-read both and fix the brand name (the URL/email is almost always more legible than a stylized logo).
+
+4. COMMON OCR / VISUAL CONFUSIONS to actively avoid:
+   • 'f' misread as 'rtz', 'rt', 'ft', 'fz', 't'
+   • 'o' misread as 'c', 'd', 'a'
+   • 'rn' misread as 'm'  •  'm' misread as 'rn'
+   • 'l' misread as 'i', 'I', '1', 'j'
+   • 'cl' misread as 'd'
+   • 'b' misread as 'h', 'lo'
+   • 'nn' misread as 'm'  •  'ii' misread as 'u'
+   • Uppercase 'O' vs zero '0', uppercase 'I' vs lowercase 'l' vs digit '1'.
+
+5. NEVER append suffixes that aren't printed in the image — no "Ltd.", "Inc.", "Pvt.", "Co.", "LLC", "Group" unless explicitly visible.
+
+6. NEVER hallucinate letters or syllables to make a name sound more "corporate" or "professional". Transcribe what is THERE, exactly.
+
+═══════════════════════════════════════════════════════════════════════════
+CONTACT-EXTRACTION POWER PASS — BE EXHAUSTIVE
+═══════════════════════════════════════════════════════════════════════════
+Run a deliberate THREE-pass scan over the image before you write Part 4:
+• Pass A — Header strip / top banner
+• Pass B — Body and any inline call-out boxes
+• Pass C — Footer strip / bottom band (THE most common location for contact details on marketing flyers — always look here)
+
+For each pass, look for these patterns and transcribe them VERBATIM:
+• Phone — any of these shapes:
+    +880-XXXX-XXX-XXX  •  +880 1X-XXXX-XXXX  •  01XXX-XXXXXX  •  +1 (XXX) XXX-XXXX
+    +44 XXXX XXXXXX    •  any sequence of 7–15 digits with optional +, spaces, dashes, dots, parentheses.
+• Email — any [name]@[domain].[tld] pattern (.com, .net, .org, .bd, .academy, .co, .io, .com.bd, .org.bd, .ac.bd, .gov.bd, etc.)
+• Website — www.…, http(s)://…, or bare [domain].[tld]
+• Address — street number + street name + city, or business-card-style address blocks
+• Social handles — @username, fb.com/…, instagram.com/…, linkedin.com/…, youtube.com/…
+
+When transcribing contact details, copy character-for-character: digit-for-digit, dot-for-dot, dash-for-dash. NEVER round, normalize, or "tidy up" a number's spacing.
+
+You will produce a 6-part caption in this EXACT order, but you MUST NOT print any section numbers, labels, headings, bullets, or markers like "1.", "2.", "Part 1", "Hero Title:", etc. Just write the content directly, separating each part with a single blank line.
+
+ABSOLUTE ORDER ENFORCEMENT (zero tolerance):
+• The VERY FIRST line of your entire output MUST be the hooked title (Part 1) — wrapped in **bold**. Nothing comes before it. No brand name, no URL, no phone number, no contact block, no greeting.
+• Contact details (📞 phone, ✉️ email, 🌐 website, 📌 address) appear ONLY in Part 4 — that is, AFTER the Service Highlights and BEFORE the Closing & Branding line. NEVER at the top, never after the title, never sprinkled through the paragraph.
+• Hashtags appear ONLY at the end of Part 5 — never mixed into earlier parts.
+• If you find yourself writing a "Brand Name — URL" header at the start, STOP. That is forbidden. Write the hook title first instead.
+
+PART 1 — HOOKED, SERVICE-ORIENTED TITLE (CRITICAL):
+This is the MOST IMPORTANT line of the entire caption. It MUST be a custom-written scroll-stopper — NEVER a copy or paraphrase of any title text already visible in the image.
+
+ABSOLUTE BANS for this title:
+   • DO NOT just transcribe or lightly rephrase the on-image headline (e.g., if the image says "Furnished Flat for Rent in Dhaka", the title MUST NOT be "Furnished Flat for Rent in Dhaka 🎉" — that is a FAILURE).
+   • DO NOT use weak openings like "Welcome to…", "Introducing…", "Looking for…", "Are you tired of…".
+   • DO NOT use generic phrases like "Quality you can trust", "Your one-stop solution", "We've got you covered".
+
+REQUIRED for this title — use ONE of these proven hook patterns:
+   (a) Bold transformation promise: "Skip the House-Hunt Headache — Move Into a Fully-Furnished Dhaka Flat by This Weekend 🏙️✨"
+   (b) Curiosity gap: "The Smartest Way Expats Are Settling in Dhaka This Year (No Furniture Shopping Required) 🛋️"
+   (c) Pain → Relief: "Tired of Empty Apartments and Endless Listings? Here's the Move-In-Ready Solution 🏡"
+   (d) Specific outcome + timeframe: "Unpack Tonight. Sleep Soundly. Live Better — Furnished Living, Done Right 🌙✨"
+   (e) Bold claim / contrarian: "Why Renting Furnished in Dhaka Just Became Smarter Than Buying 🔑"
+   (f) Direct benefit + status: "Where Busy Professionals Land in Dhaka — Fully Furnished, Fully Secure 💼🏠"
+
+FORMAT RULES for the title:
+   • Wrap the ENTIRE title in **double asterisks** so it renders bold. Example: **Skip the House-Hunt Headache — Move Into a Fully-Furnished Dhaka Flat by This Weekend 🏙️✨**
+   • Include 1–2 emojis that match the service category — never random.
+   • One single line. Maximum 14 words. Punchy.
+   • Reference a tangible outcome, transformation, status gain, time saved, or pain removed — never just describe the product.
+
+PART 2 — HERO PARAGRAPH: 3–5 sentences. Open by naming the specific pain or aspiration the target customer feels. Then position the brand's offering as the expert, reliable, fast solution. Reference visible details from the image (colors, setting, product type, brand cues) so the caption feels written FOR this exact post, not generic.
+
+PART 3 — SERVICE HIGHLIGHTS: 5–7 lines, each starting with ✅ followed by a concrete benefit tied to what's visible in the image. Use bold for the benefit name, then a colon and a short explanation. No numbers. No dashes.
+
+PART 4 — CONTACT & CTA — ABSOLUTE ANTI-HALLUCINATION RULES (READ TWICE):
+
+You are FORBIDDEN from including ANY contact detail (phone number, email, website, address, or social handle) that you cannot LITERALLY see printed in the image with your own eyes. This is a HARD rule, not a soft preference.
+
+🚫 SOURCES YOU MAY NEVER USE TO PRODUCE A CONTACT DETAIL:
+   • The brand name. (Just because the brand is "Eicra Soft" does NOT mean you can write "eicrasoft.com" — the website MUST be literally printed in the image.)
+   • Your memory of similar businesses or common conventions.
+   • Plausible guesses, "typical formats", placeholder digits, or country-code defaults.
+   • Generic numbers like +880-1700000000, +880-1XXXXXXXXX, 0123456789, 5555555555, 1111111111, or any sequence with 4+ consecutive identical digits or 5+ consecutive zeros.
+   • Fictional or placeholder street addresses (e.g., "1/100 Westlake", "Plot No. 10", "House 12 Road 5" — UNLESS those exact characters are printed in the image).
+   • Inferring an address just because you can see a city or country mentioned somewhere.
+
+✅ THE ONLY WAY a contact line is allowed in Part 4:
+You have just visually transcribed that exact phone / email / URL / address character-by-character from a specific region of the image you can identify (e.g., "I see the footer strip and it reads…").
+
+When NO contact details are visible in the image (which is the case for many marketing graphics — they often show only the brand mark + headline + bullets, with no contact info), the ENTIRE Part 4 must consist of ONLY organic Facebook engagement CTAs — NEVER any fabricated phone/email/URL/address. Use 2–3 of these lines:
+        💬 Send us a message to get started
+        🔔 Comment "INFO" below — we'll DM you the details
+        📩 Drop your question in the comments — fast replies
+        🔗 Tap "Send Message" on this page to start the conversation
+        👋 Visit our Facebook page for full pricing & booking
+
+Then end Part 4 with ONE strong direct CTA sentence beginning with 👉.
+
+WHEN contact details ARE visibly printed, include them VERBATIM (character-for-character) one per line with the matching icon: 📞 ✉️ 🌐 📌.
+
+🚫 STRICT BANS:
+   • Placeholders: "[Your phone]", "[Your email]", "[Insert ...]", "XXX-XXX", "example.com", "yourbrand.com".
+   • Round-number phones: ANY phone whose final 4–8 digits are zeros (e.g., +880-1700000000) is FABRICATED — do not write it.
+   • Sequential digits (1234567890, 0987654321) are FABRICATED — do not write them.
+   • Repeating-digit phones (1111111111, 9999999999) are FABRICATED — do not write them.
+
+If you find yourself about to "fill in" a contact detail you can't actually see, STOP. Use an engagement CTA line instead. This is not optional.
+
+PART 5 — CLOSING & BRANDING: One closing line that reaffirms the EXACT business name as it appears in the image (transcribe the brand from any logo or text visible). If no brand is visible, write a value-driven closing line WITHOUT inventing a brand name and WITHOUT placeholders. On the next line: 6–8 highly targeted hashtags in #CamelCase, space-separated. Hashtags must reflect the actual niche, audience, and geography inferred from the image.
+
+PART 6 — VISUAL SUGGESTION: One short sentence starting with 📸 recommending a visual pairing or follow-up shot.
+
+ABSOLUTE RULES — ZERO TOLERANCE:
+- NEVER use bracketed placeholders of any kind: no "[Your phone]", "[Your email]", "[Brand]", "[Insert ...]", "[xxx]", "[name]".
+- NEVER use fake numbers, fake emails, or example.com / yourbrand.com.
+- NEVER write section numbers or labels ("1.", "Hero Title:", "Service Highlights -", etc.).
+- NEVER add preamble, postamble, explanation, or meta-commentary.
+- NEVER write generic clichés like "Quality you can trust", "We are the best" — use specific, evidence-backed, image-grounded statements.
+- Separate the 6 parts with ONE blank line between each. Within Part 3, no blank lines between bullets.
+- Tone: warm, expert, conversion-focused, fully organic — sounds like a human brand owner, not an AI.
+- Length: 150–250 words excluding hashtags.`;
+}
+
+let __lastVariation = null;
+/* ---------- Variation engine: makes every generation feel fresh ----------
+   Injects random creative directives (hook pattern, emotional angle, tone,
+   structural rhythm, opening sentence shape) on every call so the model
+   can't fall into a static template — even with the same image. */
+function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function buildVariationDirective() {
+  // Massively expanded hook-opening patterns. Each generation locks onto ONE
+  // of these, forcing the title into a different rhetorical shape every time.
+  const hookPatterns = [
+    'QUESTION HOOK — open with a "?" that names a hidden anxiety the customer feels',
+    'COMMAND VERB START — open with one verb: "Find / Get / Meet / Discover / Try / Build / Launch / Reserve / Book / Claim / Start / Stop"',
+    'NUMBER-DRIVEN — open with a number: "3 Reasons…", "5 Ways…", "7 Things…", "10 Minutes to…"',
+    'BEFORE/AFTER — "From [bad state] to [good state]" structure',
+    'CONTRARIAN — open with "Why" + a surprising claim that flips conventional wisdom',
+    'STATUS / IDENTITY — open with the audience: "[Audience] who [verb]", "Smart [audience] choose…"',
+    'TIMEFRAME PROMISE — open with a specific time: "In 24 hours…", "By next Monday…", "Tonight, …"',
+    'STOP+START — "Stop [pain]. Start [benefit]." (two short clauses)',
+    'IMAGINE / WHAT-IF — open with "Imagine…" or "What if…" then paint the outcome',
+    'BENEFIT-FIRST NOUN — open with a noun phrase that names the outcome, no verb',
+    'COMPARISON / VS — frame it as a choice: "[Bad way] vs. [our way]"',
+    'INSIDER REVEAL — "The one thing [audience] [verb] that [outcome]"',
+    'TURN-INTO — "Turn [pain] into [benefit]" structure',
+    'READY TO… — open with "Ready to [verb]?"',
+    'METAPHOR / IMAGE — open with a visual metaphor for the outcome (the door, the bridge, the shortcut, the playbook, the blueprint)',
+    'PERSONALIZED-YOU — open with "Your [thing] just got [adjective]" or "You + [outcome]"',
+    'NO-MORE — "No more [pain] — just [benefit]"',
+    'POV / FIRST-PERSON — open with "Here\'s how we…" or "Meet the team…"',
+    'EXCLAMATORY OUTCOME — open with the outcome stated as a confident exclamation',
+    'CHALLENGE / DARE — "Find a better [thing]. We dare you." style'
+  ];
+
+  // Words / openers that have been overused — banned from THIS generation.
+  // Skip & Unlock are always banned because the model keeps defaulting to them.
+  const PERMA_BANS = ['Skip', 'Unlock', 'Introducing', 'Looking for'];
+  const ROTATING_BANS_POOL = [
+    'Welcome to', 'Ready to', 'Imagine', 'Discover', 'Tired of', 'Are you',
+    'The best', 'Your one', 'We are', 'Get the', 'Find the', 'Stop the'
+  ];
+  // Pick 3 random rotating bans for this generation so the model can't reach
+  // for those either. Combined with PERMA_BANS, the model is forced to find
+  // a fresh opener it hasn't been allowed to use in many sessions.
+  const rotatingBans = [];
+  const pool = [...ROTATING_BANS_POOL];
+  for (let i = 0; i < 3 && pool.length; i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    rotatingBans.push(pool.splice(idx, 1)[0]);
+  }
+  const bans = [...PERMA_BANS, ...rotatingBans];
+  const emotionalAngles = [
+    'curiosity & intrigue', 'urgency & momentum', 'aspiration & status', 'relief & calm',
+    'opportunity & timing', 'trust & reliability', 'belonging & community', 'empowerment & control'
+  ];
+  const tones = [
+    'punchy and confident', 'warm and conversational', 'authoritative and expert',
+    'energetic and enthusiastic', 'thoughtful and consultative', 'bold and challenger-style'
+  ];
+  const rhythms = [
+    'open with a SHORT 4–6 word sentence, then build into longer flowing sentences',
+    'use a mix of short and medium-length sentences throughout — vary the rhythm',
+    'open with a rhetorical question, then deliver a confident answer',
+    'use a "you-focused" voice — address the reader directly with "you", "your", "you\'ll"',
+    'use a "we-focused" voice — show the team behind the brand with "our team", "we built", "we handle"'
+  ];
+  const openings = [
+    'open the hero paragraph with a vivid scenario the customer imagines',
+    'open the hero paragraph with the specific pain the customer feels right now',
+    'open the hero paragraph with a contrarian or surprising statement',
+    'open the hero paragraph with a "What if…" speculation',
+    'open the hero paragraph with a confident promise about the outcome'
+  ];
+  const highlightStyles = [
+    'each highlight bullet starts with a strong action verb',
+    'each highlight bullet leads with the outcome the customer gets (not the feature)',
+    'each highlight bullet uses a "Feature: benefit" structure with bold on the feature',
+    'each highlight bullet names a specific number, timeframe, or measurable result',
+    'each highlight bullet contrasts the old painful way with our better way'
+  ];
+  const ctaStyles = [
+    'CTA sentence creates gentle urgency without sounding pushy',
+    'CTA sentence emphasizes an easy first step (low commitment)',
+    'CTA sentence promises a specific outcome from taking action',
+    'CTA sentence appeals to social proof / status of taking action',
+    'CTA sentence uses an inviting / warm tone'
+  ];
+
+  const nonce = Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+
+  return {
+    nonce,
+    block: `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VARIATION DIRECTIVES FOR THIS SPECIFIC GENERATION (session ${nonce})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is a FRESH attempt. Even if you have generated a caption for this exact image before, you MUST produce a substantively different caption this time. Follow these per-session creative directives:
+
+• HOOK PATTERN to use for the title: ${pickOne(hookPatterns)}
+• EMOTIONAL ANGLE to lead with: ${pickOne(emotionalAngles)}
+• OVERALL TONE: ${pickOne(tones)}
+• SENTENCE RHYTHM: ${pickOne(rhythms)}
+• HERO PARAGRAPH OPENING: ${pickOne(openings)}
+• SERVICE HIGHLIGHTS STYLE: ${pickOne(highlightStyles)}
+• CTA STYLE: ${pickOne(ctaStyles)}
+
+🚫 BANNED OPENING WORDS for the title in THIS generation:
+The title MUST NOT start with any of these words/phrases: ${bans.map(b => `"${b}"`).join(', ')}.
+If your draft title begins with any banned word, REWRITE it using a different hook pattern from the list above.
+
+These directives change EVERY generation. Treat them as binding for this single output — do not blend with any earlier caption you may have produced. Vary your vocabulary, sentence shapes, and metaphors so this caption feels unmistakably distinct from any previous one.`
+  };
+}
+
+function buildUserPrompt(userText) {
+  const variation = buildVariationDirective();
+  // expose for the engine call so we can vary temperature/topK per session too
+  __lastVariation = variation;
+  return `${userText}
+${variation.block}
+
+STEP 1 — DELIBERATE VISUAL OCR (do this BEFORE writing anything):
+Run THREE separate passes over the image — top header, body, bottom footer — and transcribe each of the following EXACTLY as printed. Where applicable, READ EACH LETTER OR DIGIT INDIVIDUALLY rather than skim-reading.
+
+• Brand / business name (read the logo letter by letter): ____
+• Phone number(s) (verbatim, every digit, every space, every dash): ____
+• Email address(es) (verbatim, every character): ____
+• Website URL(s) (verbatim, every character): ____
+• Physical address: ____
+• Social handles: ____
+• Product / service category shown: ____
+
+STEP 1B — BRAND-NAME CROSS-CHECK (mandatory):
+Compare the brand name you transcribed with the website URL and email domain you transcribed. The domain root MUST match the brand spelling. If they disagree, the URL is almost always more reliable than a stylized logo — fix the brand name to match the domain.
+   ✓ "Eicra Soft" + "eicrasoft.com" → consistent ✓
+   ✗ "Eicra Sortz" + "eicrasoft.com" → INCONSISTENT — fix brand to "Eicra Soft".
+   ✗ "Neuratech Academy" + "neuratech.academy" → consistent ✓
+Re-read the brand from the logo one final time, letter-by-letter, before continuing.
+
+STEP 2 — Write the 6-part caption:
+• In PART 4, use the EXACT phone / email / website you transcribed — verbatim. Only fall back to an organic engagement CTA for a contact line that is genuinely "not visible".
+• When you write the brand name in the hero paragraph and closing line, use the SPELLING from your Step 1B cross-check (never the misread version).
+• NEVER write "[Your phone]", "[Your email]", "[Brand]", "example.com" or any bracketed placeholder.
+• NEVER append "Ltd.", "Inc.", "Pvt." etc. unless explicitly printed in the image.
+
+REMINDER ON THE TITLE: Do NOT copy or rephrase the headline already printed on the image. Write a NEW, custom hook that creates curiosity or promises a transformation — wrapped in **double asterisks** with 1–2 fitting emojis.
+
+Now produce the full 6-part fully organic, long-form, hooked, service-oriented caption. Output content only — no numbers, no labels, no preamble, no "Step 1 / Step 2" headers.`;
+}
+
+/* ---------- Chrome built-in AI (Prompt API) ---------- */
+async function runChromeBuiltInAI(systemPrompt, userText, files) {
+  // Chrome Built-in Prompt API (window.LanguageModel) — multimodal
+  if (!('LanguageModel' in self)) {
+    throw new Error('window.LanguageModel not available in this browser.');
+  }
+  const availability = await LanguageModel.availability({
+    expectedInputs: [{ type: 'image' }, { type: 'text' }]
+  });
+  if (availability === 'unavailable') {
+    throw new Error('LanguageModel availability: unavailable');
+  }
+
+  // Per-session sampling variation: random temperature in [0.95, 1.35] and
+  // topK in [40, 80]. Combined with the directive block in the user prompt,
+  // this prevents the on-device model from collapsing into a static answer
+  // even when the same image is uploaded repeatedly.
+  const tempJitter = 0.95 + Math.random() * 0.40;
+  const topKJitter = Math.round(40 + Math.random() * 40);
+
+  const session = await LanguageModel.create({
+    expectedInputs: [{ type: 'image' }, { type: 'text' }],
+    initialPrompts: [{ role: 'system', content: systemPrompt }],
+    temperature: tempJitter,
+    topK: topKJitter
+  });
+
+  // Build multimodal user message
+  const content = [{ type: 'text', value: userText }];
+  for (const f of files) {
+    const bitmap = await createImageBitmap(f);
+    content.push({ type: 'image', value: bitmap });
+  }
+
+  const response = await session.prompt([{ role: 'user', content }]);
+  try { session.destroy?.(); } catch {}
+  return (response || '').trim();
+}
+
+/* ---------- Deterministic fallback (graceful, never empty) ---------- */
+function buildFallbackCaption(uploadsArr, userPrompt) {
+  // Heuristic: use filename + prompt to seed a generic high-quality caption
+  const hint = (uploadsArr[0]?.name || '').replace(/[-_\.]/g, ' ');
+  const seed = (userPrompt + ' ' + hint).toLowerCase();
+
+  let topic = 'Premium Service';
+  if (/event|venue|space|hall|gather|wedding/.test(seed)) topic = 'Event Coordination & Venue';
+  else if (/food|restaurant|menu|recipe|kitchen/.test(seed)) topic = 'Culinary Excellence';
+  else if (/cloth|fashion|dress|wear|outfit/.test(seed)) topic = 'Fashion & Apparel';
+  else if (/tech|software|app|web|digital|seo/.test(seed)) topic = 'Digital Services';
+  else if (/property|real estate|rent|flat|house|apartment/.test(seed)) topic = 'Real Estate';
+  else if (/health|clinic|doctor|medic|treatment/.test(seed)) topic = 'Healthcare Excellence';
+
+  return `**${emoji(topic)} ${topic} — Built Around What You Actually Need ✨**
+
+Tired of services that overpromise and underdeliver? Our team turns everyday challenges into seamless, memorable experiences — fast, reliable, and tailored exactly to the outcome you're chasing. From the first conversation to final handover, every detail is handled with care, expertise, and a real obsession for getting it right.
+
+✅ **End-to-end execution:** every step planned, every detail covered
+✅ **Dedicated specialists:** the right expert on your project from day one
+✅ **Transparent pricing:** clear quotes, no hidden surprises
+✅ **Proven track record:** trusted by discerning clients across multiple sectors
+✅ **Fast response:** real humans replying within the hour, every working day
+
+💬 Send us a message to get a tailored quote
+🔔 Comment "INFO" below — we'll DM you the full details
+🔗 Tap "Send Message" on this page to start the conversation today
+
+👉 Don't settle for ordinary — let's build something genuinely remarkable together.
+
+Quality you can feel, results you can measure.
+
+#${topic.replace(/[^a-zA-Z]/g,'')} #BusinessGrowth #TrustedPartner #ClientFirst #QualityService #Bangladesh #EcommerceComBD #BookNow
+
+📸 Pair this caption with a clean hero shot of your product/service in real-world use to maximize engagement.`;
+}
+
+function emoji(topic) {
+  const map = {
+    'Event Coordination & Venue': '🎉',
+    'Culinary Excellence': '🍽️',
+    'Fashion & Apparel': '👗',
+    'Digital Services': '💻',
+    'Real Estate': '🏡',
+    'Healthcare Excellence': '🩺',
+    'Premium Service': '🌟'
+  };
+  return map[topic] || '🌟';
+}
+
+/* ---------- Fabrication detector for contact details ----------
+   Returns true if the given phone-shaped string is obviously synthetic
+   (placeholder/hallucinated). Heuristics tuned to catch the patterns
+   on-device Gemini Nano falls back to when it has nothing to read. */
+function isFabricatedPhone(line) {
+  if (!line) return false;
+  const digits = (line.match(/\d/g) || []).join('');
+  if (digits.length < 7) return false; // too short to judge
+  // 5+ consecutive zeros (e.g. 1700000000)
+  if (/0{5,}/.test(digits)) return true;
+  // 4+ consecutive identical digits anywhere (1111, 9999, …)
+  if (/(\d)\1{3,}/.test(digits)) return true;
+  // Common ascending / descending runs
+  if (/(0123456|1234567|2345678|3456789|4567890|9876543|8765432|7654321|6543210)/.test(digits)) return true;
+  // 555-prefix US placeholders, all-zero country-code variants, etc.
+  if (/^(?:\+?880)?0+$/.test(digits)) return true;
+  return false;
+}
+
+function isFabricatedAddress(line) {
+  if (!line) return false;
+  const clean = line.replace(/^[\s​‍]*📌\s*/, '').trim();
+  if (!clean) return false;
+  // Classic "Plot No. X" / "House X Road Y" / "X/Y, Some-name" placeholders
+  // are NOT inherently fake — only flag the textbook example patterns the
+  // model resorts to when it has nothing to read.
+  const fakeNeedles = [
+    /\b1\s*\/\s*100\b/i,        // 1/100 (very common placeholder)
+    /\bplot\s+no\.?\s+1\b/i,
+    /\bhouse\s+1\s+road\s+1\b/i,
+    /\bxx+\b/i,
+    /lorem|ipsum/i,
+    /your\s+address/i
+  ];
+  return fakeNeedles.some(rx => rx.test(clean));
+}
+
+function stripFabricatedContact(text) {
+  if (!text) return text;
+  const lines = text.split('\n');
+
+  const ENGAGEMENT_POOL = [
+    '💬 Send us a message to get started',
+    '🔔 Comment "INFO" below — we\'ll DM you the details',
+    '📩 Drop your question in the comments — fast replies',
+    '🔗 Tap "Send Message" on this page to start the conversation',
+    '👋 Visit our Facebook page for full details'
+  ];
+
+  let modified = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    // Phone line check
+    if (/^\s*(📞|☎️|📱)/.test(t) && isFabricatedPhone(t)) {
+      lines[i] = ENGAGEMENT_POOL[0];
+      modified = true;
+      continue;
+    }
+    // Address line check
+    if (/^\s*📌/.test(t) && isFabricatedAddress(t)) {
+      lines[i] = '';  // address is optional — just drop it
+      modified = true;
+      continue;
+    }
+  }
+
+  // If any replacement happened, also ensure we don't leave duplicate
+  // engagement CTAs back-to-back.
+  if (modified) {
+    const dedup = [];
+    let prev = '';
+    for (const ln of lines) {
+      if (ln.trim() && ln.trim() === prev.trim()) continue;
+      dedup.push(ln);
+      prev = ln;
+    }
+    return dedup.join('\n').replace(/\n{3,}/g, '\n\n');
+  }
+  return text;
+}
+
+/* ---------- Helpers for brand-name self-correction ---------- */
+function looselyMatches(candidate, target) {
+  // Returns true if `candidate` is similar enough to `target` to be a misread
+  // of it. Heuristic: at least 65% of the target letters appear, in order,
+  // somewhere in the candidate (allowing skips/extras), AND the length
+  // difference is small.
+  if (!candidate || !target) return false;
+  if (Math.abs(candidate.length - target.length) > 5) return false;
+  let i = 0, hits = 0;
+  for (let j = 0; j < candidate.length && i < target.length; j++) {
+    if (candidate[j] === target[i]) { i++; hits++; }
+  }
+  // Also try the reverse direction
+  let i2 = 0, hits2 = 0;
+  for (let j = 0; j < target.length && i2 < candidate.length; j++) {
+    if (target[j] === candidate[i2]) { i2++; hits2++; }
+  }
+  const ratio = Math.max(hits / target.length, hits2 / candidate.length);
+  return ratio >= 0.65 && hits >= 4;
+}
+
+function deriveBrandFromRoot(root, originalPhrase) {
+  // Take the domain root (lowercase, no spaces) and produce a properly cased
+  // brand name. If the original phrase had two words, try to preserve a
+  // similar split. Otherwise use a single capitalized word.
+  if (!root) return originalPhrase;
+  const originalWords = originalPhrase.split(/\s+/);
+  if (originalWords.length === 2) {
+    const a = originalWords[0].toLowerCase();
+    const b = originalWords[1].toLowerCase();
+    // Try to split root at the same position as the original first word length
+    const splitAt = a.length;
+    if (splitAt > 0 && splitAt < root.length) {
+      const first = root.slice(0, splitAt);
+      const second = root.slice(splitAt);
+      return cap(first) + ' ' + cap(second);
+    }
+  }
+  return cap(root);
+}
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+/* ---------- Sanitizer: strip section numbering/labels + placeholders ---------- */
+function sanitizeCaption(text) {
+  if (!text) return text;
+
+  // ---- Replace the "lollipop" round-pushpin 📍 with the flatter 📌 location marker ----
+  text = text.replace(/📍/g, '📌');
+
+  // ---- Anti-hallucination: strip obviously fabricated phone/address lines.
+  //      If a 📞 line's digits look fake (4+ same digit in a row, 5+ zeros in
+  //      a row, 1234567 sequence, or a country-code prefix followed by all
+  //      zeros), drop the line and replace the whole contact block with
+  //      organic engagement CTAs. Same for 📌 address lines that match
+  //      common placeholder patterns.
+  text = stripFabricatedContact(text);
+
+  // ---- Brand-name self-correction:
+  //  If a website / email domain is present in the same caption, derive the
+  //  canonical brand spelling from the domain root and fix obvious misreads.
+  //  e.g. captions that mention "Eicra Sortz" alongside eicrasoft.com → fix. ----
+  try {
+    const domainMatch = text.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]{3,40})\.(?:com|net|org|co|io|academy|bd|com\.bd|org\.bd|ac\.bd|gov\.bd)/i);
+    if (domainMatch) {
+      const root = domainMatch[1].toLowerCase();   // e.g. "eicrasoft"
+      // Find any standalone Capitalized-Word token that, when lowercased and
+      // collapsed (spaces removed), is similar (Levenshtein-ish loose match)
+      // to the domain root. If similar but not equal, replace with the
+      // domain-derived spelling.
+      const tokenRx = /\b([A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{2,}){0,3})\b/g;
+      const replacements = new Map();
+      let m;
+      while ((m = tokenRx.exec(text)) !== null) {
+        const phrase = m[1];
+        const collapsed = phrase.toLowerCase().replace(/\s+/g, '');
+        if (collapsed === root) continue; // already correct
+        if (Math.abs(collapsed.length - root.length) > 4) continue;
+        // Loose similarity: at least 60% of the root letters appear in order
+        if (looselyMatches(collapsed, root)) {
+          // Build a properly cased version of the domain root preserving the
+          // original phrase's word boundaries (use the original spacing
+          // pattern if 2-word, else just split at the obvious boundary).
+          const fixed = deriveBrandFromRoot(root, phrase);
+          if (fixed && fixed !== phrase) replacements.set(phrase, fixed);
+        }
+      }
+      for (const [bad, good] of replacements) {
+        text = text.split(bad).join(good);
+      }
+    }
+  } catch {}
+
+  // ---- Strip invented company-suffixes (Ltd./Inc./Pvt./LLC/Co.) that the
+  //      model adds when they aren't actually in the image. We can't tell
+  //      from text alone if they're invented, but they almost always are
+  //      when the URL/email doesn't include them. Conservative: only strip
+  //      ", Ltd." / " Ltd." style suffixes attached directly to a brand. ----
+  // (Disabled by default — only strips obvious hallucinated suffixes when
+  //  the same suffix DOES NOT appear in the URL/email domain.)
+
+  // ---- Year correction: replace any stale year (< current year) with current year ----
+  const currentYear = new Date().getFullYear();
+  text = text.replace(/\b(19[0-9]{2}|20[0-9]{2})\b/g, (match) => {
+    const y = parseInt(match, 10);
+    // Replace any past year reference with current year (preserve future years untouched)
+    if (y < currentYear) return String(currentYear);
+    return match;
+  });
+
+  // Organic CTA pool to replace any placeholder contact lines
+  const organicCtas = [
+    '💬 Send us a message to get started',
+    '🔔 Comment "INFO" below — we\'ll DM you the details',
+    '📩 Drop your question in the comments — fast replies',
+    '🔗 Tap the link in our page bio for full details',
+    '👉 Click "Send Message" — our team is online now'
+  ];
+  let ctaIdx = 0;
+  const nextCta = () => organicCtas[(ctaIdx++) % organicCtas.length];
+
+  const lines = text.split(/\r?\n/);
+  const cleaned = lines.map(raw => {
+    let line = raw;
+
+    // Strip leading "1." / "1)" / "1 -" / "1:" / "(1)" with optional **bold** wrappers
+    line = line.replace(/^\s*\**\s*\(?\s*[1-6]\s*[\.\)\:\-–—]\s*\**\s*/i, '');
+
+    // Strip explicit section labels like "Hero Title:", "Service Highlights -", "Closing & Branding:"
+    line = line.replace(
+      /^\s*\**\s*(part\s*[1-6]\s*[\-–—:]?\s*)?(hero\s*(title|hook|paragraph|section)?|service\s*highlights?|contact\s*(&|and)?\s*(cta|call[- ]?to[- ]?action)?|call[- ]?to[- ]?action|closing\s*(&|and)?\s*branding?|branding|visual\s*suggestion|cta)\s*[:\-–—]*\s*\**\s*/i,
+      ''
+    );
+
+    // Strip OCR scaffolding lines if the model accidentally echoes them
+    if (/^\s*step\s*[12]\b/i.test(line)) line = '';
+    if (/^\s*(brand|business)\s*(name|\/\s*business)?\s*:/i.test(line)) line = '';
+    if (/^\s*(phone|email|website|address|social|product|service\s*category)\s*(number)?\s*:/i.test(line)) line = '';
+
+    // Detect placeholder-bearing lines: [your phone], [your email], [insert ...], [brand], [name], XXX-XXX, example.com, yourbrand.*
+    const placeholderRx = /\[[^\]]*(your|insert|brand|name|phone|email|website|url|contact|business|company|here|xxx)[^\]]*\]|x{3,}[\s-]?x{3,}|example\.(com|net|org)|yourbrand\.[a-z]+|yourcompany\.[a-z]+|123[- ]?456[- ]?7890/i;
+    if (placeholderRx.test(line)) {
+      // If the entire line is essentially a placeholder contact line, replace with an organic CTA
+      const stripped = line.replace(/[📞✉️🌐📧☎️📱🔗]/g, '').trim();
+      const onlyPlaceholder = /^\s*\[[^\]]+\]\s*$/.test(stripped) || stripped.length < 30;
+      if (onlyPlaceholder) {
+        line = nextCta();
+      } else {
+        // Surgical removal: drop the bracketed placeholder fragment, leave rest of sentence intact
+        line = line.replace(/\s*\[[^\]]*(your|insert|brand|name|phone|email|website|url|contact|business|company|here|xxx)[^\]]*\]\s*/gi, ' ').trim();
+        line = line.replace(/\s*example\.(com|net|org)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+        if (line.length < 25) line = nextCta();
+      }
+    }
+
+    return line;
+  });
+
+  // Collapse 3+ blank lines down to 2 (max one blank line between parts)
+  let out = cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  // Final pass: remove any stray empty bracketed tokens
+  out = out.replace(/\[\s*\]/g, '').replace(/[ \t]+\n/g, '\n');
+
+  // ---- Reorder: relocate any contact lines that appear BEFORE the first
+  // ✅ service-highlight bullet to their correct Part 4 position (right
+  // after the highlights, before closing & hashtags). This catches the
+  // model's habit of dumping phone/email/website at the very top. ----
+  out = relocateMisplacedContact(out);
+
+  // Detect and rewrite titles that begin with the perma-banned openers
+  // "Skip" or "Unlock" — replace just the first word with a rotating
+  // alternative so the same image never produces the same Skip/Unlock title.
+  {
+    const altOpeners = [
+      'Discover', 'Find', 'Meet', 'Build', 'Launch', 'Start', 'Claim', 'Reserve',
+      'Explore', 'Reimagine', 'Step into', 'Step up to', 'Master', 'Own', 'Power up',
+      'Settle into', 'Get inside', 'Tap into', 'Step beyond', 'Reach', 'Plug into'
+    ];
+    const lines = out.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
+      if (!raw.trim()) continue;
+      // First non-empty line = the hero title
+      const stripped = raw.replace(/^\*+|\*+$/g, '').trim();
+      const m = stripped.match(/^(Skip|Unlock)\s+(?:the\s+|your\s+)?(.+)$/i);
+      if (m) {
+        const replacement = altOpeners[Math.floor(Math.random() * altOpeners.length)];
+        // Preserve the rest of the sentence; if it began with "the/your" we drop those filler words too.
+        const rest = m[2];
+        const rebuilt = `${replacement} ${rest.charAt(0).toLowerCase() + rest.slice(1)}`;
+        lines[i] = raw.replace(stripped, rebuilt);
+      }
+      break;
+    }
+    out = lines.join('\n');
+  }
+
+  // Ensure the first non-empty line (the Hero Title) is wrapped in **bold**.
+  // If the model forgot the asterisks, add them so the title always renders bold.
+  const partsLines = out.split('\n');
+  for (let i = 0; i < partsLines.length; i++) {
+    const t = partsLines[i].trim();
+    if (!t) continue;
+    if (!/^\*\*[\s\S]+\*\*\s*$/.test(t)) {
+      // Strip any partial bold markers and re-wrap cleanly
+      const clean = t.replace(/^\*+|\*+$/g, '').trim();
+      partsLines[i] = partsLines[i].replace(t, `**${clean}**`);
+    }
+    break;
+  }
+  out = partsLines.join('\n');
+
+  return out;
+}
+
+/* ---------- Contact-block relocator ----------
+   If the model emitted phone/email/website lines BEFORE the ✅ service
+   highlights (a common ordering mistake), this lifts them out and re-inserts
+   them as the proper Part 4 block — right after the last ✅ bullet, before
+   the closing/hashtag line. Pure structural fix, never alters wording. */
+function relocateMisplacedContact(text) {
+  if (!text) return text;
+  const lines = text.split('\n');
+
+  // Locate first ✅ bullet
+  let firstCheckIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*✅/.test(lines[i])) { firstCheckIdx = i; break; }
+  }
+  if (firstCheckIdx === -1) return text; // No highlights — leave alone.
+
+  // A "contact-shaped" line: starts with a contact icon AND contains a
+  // phone / email / URL / address-y token. Hashtag line (Part 5) is NOT a
+  // contact line and must never be moved.
+  // Match contact-icon lines for either the legacy 📍 or the new 📌 marker
+  const ICONS = /^[\s​‍]*(📞|☎️|📱|✉️|📧|🌐|🔗|📌|📍)/;
+  const HAS_CONTACT_CONTENT = /(@[\w.-]+\.[a-z]{2,}|\bhttps?:\/\/|www\.|\.com|\.net|\.org|\.bd|\.academy|\.co|\+?\d[\d\s().-]{6,}\d)/i;
+  const isContactLine = (raw) => {
+    const t = raw.trim();
+    if (!t) return false;
+    if (/^#/.test(t)) return false;
+    return ICONS.test(t) && HAS_CONTACT_CONTENT.test(t);
+  };
+
+  // Extract any contact lines that appear BEFORE the first ✅
+  const misplaced = [];
+  const headLines = [];
+  for (let i = 0; i < firstCheckIdx; i++) {
+    if (isContactLine(lines[i])) misplaced.push(lines[i].trim());
+    else headLines.push(lines[i]);
+  }
+  if (misplaced.length === 0) return text;
+
+  // Rebuild: head (without contact) + remainder
+  const rebuilt = headLines.concat(lines.slice(firstCheckIdx));
+
+  // Locate the LAST ✅ in the rebuilt array
+  let lastCheckIdx = -1;
+  for (let i = 0; i < rebuilt.length; i++) {
+    if (/^\s*✅/.test(rebuilt[i])) lastCheckIdx = i;
+  }
+  if (lastCheckIdx === -1) return rebuilt.join('\n');
+
+  // Insertion point: end of the highlights block — i.e. the first blank
+  // line following the last ✅ bullet (or right after it if no blank).
+  let insertIdx = lastCheckIdx + 1;
+  while (insertIdx < rebuilt.length && rebuilt[insertIdx].trim() !== '') insertIdx++;
+
+  const final = [
+    ...rebuilt.slice(0, insertIdx),
+    '',
+    ...misplaced,
+    ...rebuilt.slice(insertIdx)
+  ];
+
+  return final.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
+/* ---------- Rendering ---------- */
+function renderCaption(text) {
+  // Convert **bold** to <strong>, preserve line breaks
+  const html = escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|\s)(#\w+)/g, '$1<span style="color:#1d4ed8">$2</span>');
+  return html;
+}
+
+function renderMeta(text) {
+  const wordCount = text.trim().split(/\s+/).length;
+  const hashtags = (text.match(/#\w+/g) || []).length;
+  const emojis = (text.match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu) || []).length;
+  metaRowEl.innerHTML = `
+    <span><b>Words:</b> ${wordCount}</span>
+    <span><b>Hashtags:</b> ${hashtags}</span>
+    <span><b>Emojis:</b> ${emojis}</span>
+    <span><b>Engine:</b> Chrome Built-in AI / On-device</span>
+  `;
+}
+
+/* =====================================================================
+   Sidebar (Grok-replica) — purely UI, engine untouched
+   ===================================================================== */
+const sidebarEl = $('sidebar');
+const collapseBtnEl = $('collapseBtn');
+const newChatBtnEl = $('newChatBtn');
+const historySearchEl = $('historySearch');
+const historyListEl = $('historyList');
+const HISTORY_KEY = 'capscity_history_v1';
+const SIDEBAR_KEY = 'capscity_sidebar_collapsed';
+
+let historyData = loadHistoryStore();
+let activeHistoryId = null;
+
+if (localStorage.getItem(SIDEBAR_KEY) === '1') {
+  document.body.classList.add('sidebar-collapsed');
+}
+
+collapseBtnEl.addEventListener('click', () => {
+  document.body.classList.toggle('sidebar-collapsed');
+  localStorage.setItem(SIDEBAR_KEY, document.body.classList.contains('sidebar-collapsed') ? '1' : '0');
+});
+
+newChatBtnEl.addEventListener('click', () => {
+  // Reset to the centered prompt-bar state (same as the bottom "New caption" button)
+  newBtn.click();
+  activeHistoryId = null;
+  renderHistory();
+});
+
+historySearchEl.addEventListener('input', renderHistory);
+
+function loadHistoryStore() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveHistoryStore() {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData));
+  } catch (e) {
+    // Quota exceeded — drop oldest entries until it fits.
+    let attempts = 0;
+    while (historyData.length > 4 && attempts < 60) {
+      historyData.pop();
+      attempts++;
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData));
+        return;
+      } catch {}
+    }
+    // Last resort: strip images from oldest entries
+    for (let i = historyData.length - 1; i >= 0; i--) {
+      if (historyData[i].images && historyData[i].images.length) {
+        historyData[i].images = [];
+        try {
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData));
+          return;
+        } catch {}
+      }
+    }
+  }
+}
+
+function extractTitle(caption) {
+  if (!caption) return 'Untitled caption';
+  const first = caption.split('\n').find(l => l.trim());
+  if (!first) return 'Untitled caption';
+  // Strip markdown bold and emojis for the sidebar label
+  const clean = first
+    .replace(/\*\*/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.slice(0, 60) || 'Untitled caption';
+}
+
+/* ---------- Image compression for history ----------
+   Downscale each upload to a small JPEG data-URL so we can persist it in
+   localStorage without blowing past the quota. Max ~240px on the longest
+   side, JPEG quality 0.7 → typically 12–25 KB per thumb. */
+function compressImageToDataURL(file, maxDim = 240, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('no file'));
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > height) {
+        if (width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+      } else {
+        if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      try { resolve(canvas.toDataURL('image/jpeg', quality)); }
+      catch (e) { reject(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image load failed')); };
+    img.src = url;
+  });
+}
+
+async function snapshotCurrentUploads() {
+  const out = [];
+  for (const u of uploads) {
+    try {
+      const dataUrl = await compressImageToDataURL(u.file);
+      out.push({ name: u.name || 'image', dataUrl });
+    } catch { /* skip unloadable images */ }
+  }
+  return out;
+}
+
+function pushHistory(caption, images = [], promptText = '') {
+  if (!caption) return;
+  // Avoid duplicating the same caption back-to-back — but DO upgrade the
+  // existing entry if we now have images and it didn't before.
+  if (historyData[0] && historyData[0].caption === caption) {
+    if (images && images.length && (!historyData[0].images || historyData[0].images.length === 0)) {
+      historyData[0].images = images;
+      if (promptText) historyData[0].promptText = promptText;
+      saveHistoryStore();
+    }
+    activeHistoryId = historyData[0].id;
+    renderHistory();
+    return;
+  }
+  const entry = {
+    id: Date.now() + Math.random().toString(36).slice(2, 6),
+    title: extractTitle(caption),
+    caption,
+    images: images || [],
+    promptText: promptText || '',
+    timestamp: Date.now()
+  };
+  historyData.unshift(entry);
+  if (historyData.length > 60) historyData = historyData.slice(0, 60);
+  activeHistoryId = entry.id;
+  saveHistoryStore();
+  renderHistory();
+}
+
+function buildHistoryItemElement(h) {
+  const el = document.createElement('div');
+  el.className = 'history-item' + (h.id === activeHistoryId ? ' active' : '');
+  el.dataset.id = h.id;
+
+  // Optional pin indicator (only in non-pinned sections — covered by group)
+  if (h.pinned) {
+    const pinSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    pinSvg.setAttribute('class', 'pin-indicator');
+    pinSvg.setAttribute('viewBox', '0 0 24 24');
+    pinSvg.setAttribute('fill', 'none');
+    pinSvg.setAttribute('stroke', 'currentColor');
+    pinSvg.setAttribute('stroke-width', '2');
+    pinSvg.setAttribute('stroke-linecap', 'round');
+    pinSvg.setAttribute('stroke-linejoin', 'round');
+    pinSvg.innerHTML = '<line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14V9.5a2.5 2.5 0 0 0-2.5-2.5h-9A2.5 2.5 0 0 0 5 9.5V17z"/><line x1="12" y1="2" x2="12" y2="7"/>';
+    el.appendChild(pinSvg);
+  }
+
+  const textEl = document.createElement('span');
+  textEl.className = 'history-text';
+  textEl.textContent = h.title;
+  textEl.title = h.title;
+  textEl.addEventListener('click', () => loadHistoryEntry(h));
+  el.appendChild(textEl);
+
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'item-menu-btn';
+  menuBtn.type = 'button';
+  menuBtn.setAttribute('aria-label', 'More options');
+  menuBtn.textContent = '⋮';
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openItemMenu(h.id, menuBtn);
+  });
+  el.appendChild(menuBtn);
+
+  return el;
+}
+
+function renderHistory() {
+  const q = (historySearchEl.value || '').toLowerCase().trim();
+  const filtered = q
+    ? historyData.filter(h => h.title.toLowerCase().includes(q) || h.caption.toLowerCase().includes(q))
+    : historyData;
+
+  historyListEl.innerHTML = '';
+
+  if (filtered.length === 0) {
+    // Only show a message during an active search; otherwise leave silent.
+    if (q) {
+      const empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = 'No matches';
+      historyListEl.appendChild(empty);
+    }
+    return;
+  }
+
+  // Separate pinned and unpinned
+  const pinned = filtered
+    .filter(h => h.pinned)
+    .sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
+  const unpinned = filtered.filter(h => !h.pinned);
+
+  if (pinned.length > 0) {
+    const head = document.createElement('div');
+    head.className = 'history-group-label';
+    head.textContent = 'Pinned';
+    historyListEl.appendChild(head);
+    pinned.forEach(h => historyListEl.appendChild(buildHistoryItemElement(h)));
+  }
+
+  const todayStr = new Date().toDateString();
+  const yesterdayStr = new Date(Date.now() - 86400000).toDateString();
+  const groups = { Today: [], Yesterday: [], Earlier: [] };
+  unpinned.forEach(h => {
+    const ds = new Date(h.timestamp).toDateString();
+    if (ds === todayStr) groups.Today.push(h);
+    else if (ds === yesterdayStr) groups.Yesterday.push(h);
+    else groups.Earlier.push(h);
+  });
+
+  for (const label of ['Today', 'Yesterday', 'Earlier']) {
+    const items = groups[label];
+    if (!items.length) continue;
+    const head = document.createElement('div');
+    head.className = 'history-group-label';
+    head.textContent = label;
+    historyListEl.appendChild(head);
+    items.forEach(h => historyListEl.appendChild(buildHistoryItemElement(h)));
+  }
+}
+
+/* ---------- Per-item action menu ---------- */
+const itemMenuEl = $('itemMenu');
+let _currentMenuBtn = null;
+
+function openItemMenu(historyId, anchorBtn) {
+  const entry = historyData.find(h => h.id === historyId);
+  if (!entry) return;
+  closeItemMenu();
+
+  const pinSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14V9.5a2.5 2.5 0 0 0-2.5-2.5h-9A2.5 2.5 0 0 0 5 9.5V17z"/><line x1="12" y1="2" x2="12" y2="7"/></svg>';
+  const unpinSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14V9.5a2.5 2.5 0 0 0-2.5-2.5h-9A2.5 2.5 0 0 0 5 9.5V17z"/><line x1="3" y1="3" x2="21" y2="21"/></svg>';
+  const trashSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+  itemMenuEl.innerHTML = `
+    <button class="item-menu-option" data-action="${entry.pinned ? 'unpin' : 'pin'}" data-id="${entry.id}" type="button">
+      ${entry.pinned ? unpinSvg : pinSvg}<span>${entry.pinned ? 'Unpin' : 'Pin'}</span>
+    </button>
+    <button class="item-menu-option danger" data-action="delete" data-id="${entry.id}" type="button">
+      ${trashSvg}<span>Delete</span>
+    </button>
+  `;
+
+  // Position next to the dots button — clamp to viewport
+  const rect = anchorBtn.getBoundingClientRect();
+  itemMenuEl.classList.add('visible');
+  const menuRect = itemMenuEl.getBoundingClientRect();
+  let top = rect.bottom + 4;
+  let left = rect.left - menuRect.width + rect.width;
+  if (left < 8) left = 8;
+  if (top + menuRect.height > window.innerHeight - 8) {
+    top = rect.top - menuRect.height - 4;
+  }
+  itemMenuEl.style.top = top + 'px';
+  itemMenuEl.style.left = left + 'px';
+
+  anchorBtn.classList.add('menu-open');
+  _currentMenuBtn = anchorBtn;
+
+  itemMenuEl.querySelectorAll('.item-menu-option').forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = opt.dataset.action;
+      const id = opt.dataset.id;
+      closeItemMenu();
+      if (action === 'pin' || action === 'unpin') togglePin(id);
+      else if (action === 'delete') showDeleteConfirm(id);
+    });
+  });
+}
+
+function closeItemMenu() {
+  itemMenuEl.classList.remove('visible');
+  if (_currentMenuBtn) {
+    _currentMenuBtn.classList.remove('menu-open');
+    _currentMenuBtn = null;
+  }
+}
+
+document.addEventListener('click', (e) => {
+  if (!itemMenuEl.classList.contains('visible')) return;
+  if (!itemMenuEl.contains(e.target) && !e.target.closest('.item-menu-btn')) {
+    closeItemMenu();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeItemMenu();
+    hideDeleteConfirm();
+  }
+});
+window.addEventListener('scroll', closeItemMenu, true);
+window.addEventListener('resize', closeItemMenu);
+
+/* ---------- Pin / Unpin ---------- */
+function togglePin(historyId) {
+  const entry = historyData.find(h => h.id === historyId);
+  if (!entry) return;
+  if (entry.pinned) {
+    entry.pinned = false;
+    delete entry.pinnedAt;
+  } else {
+    entry.pinned = true;
+    entry.pinnedAt = Date.now();
+  }
+  saveHistoryStore();
+  renderHistory();
+}
+
+/* ---------- Delete-confirm modal ---------- */
+const deleteModalEl = $('deleteModal');
+const backHomeBtnEl = $('backHomeBtn');
+const confirmDeleteBtnEl = $('confirmDeleteBtn');
+
+function showDeleteConfirm(historyId) {
+  deleteModalEl.dataset.targetId = historyId;
+  deleteModalEl.classList.add('visible');
+}
+function hideDeleteConfirm() {
+  deleteModalEl.classList.remove('visible');
+  delete deleteModalEl.dataset.targetId;
+}
+
+backHomeBtnEl.addEventListener('click', () => {
+  // Cancel the modal AND return user to the home (centered prompt-bar) screen.
+  hideDeleteConfirm();
+  newBtn.click();
+  activeHistoryId = null;
+  renderHistory();
+});
+
+confirmDeleteBtnEl.addEventListener('click', () => {
+  const id = deleteModalEl.dataset.targetId;
+  if (id) {
+    historyData = historyData.filter(h => h.id !== id);
+    saveHistoryStore();
+    if (activeHistoryId === id) {
+      newBtn.click();
+      activeHistoryId = null;
+    }
+    renderHistory();
+  }
+  hideDeleteConfirm();
+});
+
+// Click outside the modal card to dismiss
+deleteModalEl.addEventListener('click', (e) => {
+  if (e.target === deleteModalEl) hideDeleteConfirm();
+});
+
+/* =====================================================================
+   Profile (sign-in) — sidebar bottom
+   ===================================================================== */
+const PROFILE_KEY = 'capscity_profile_v1';
+const profileRowEl = $('profileRow');
+const profileToggleEl = $('profileToggle');
+const profilePanelEl = $('profilePanel');
+const signInBtnEl = $('signInBtn');
+const signOutBtnEl = $('signOutBtn');
+const userAvatarEl = $('userAvatar');
+const userNameEl = $('userName');
+const userEmailEl = $('userEmail');
+
+const signInModalEl = $('signInModal');
+const avatarUploadEl = $('avatarUpload');
+const avatarPreviewEl = $('avatarPreview');
+const avatarInputEl = $('avatarInput');
+const nameInputEl = $('nameInput');
+const signInCancelBtnEl = $('signInCancelBtn');
+const signInSaveBtnEl = $('signInSaveBtn');
+
+let userProfile = loadProfile();
+
+function loadProfile() {
+  try { return JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); }
+  catch { return null; }
+}
+function saveProfile() {
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(userProfile)); }
+  catch {}
+}
+
+const defaultAvatarSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+
+function renderProfile() {
+  if (userProfile && userProfile.name) {
+    // Signed in
+    userAvatarEl.classList.add('signed-in');
+    if (userProfile.avatar) {
+      userAvatarEl.innerHTML = `<img src="${userProfile.avatar}" alt="">`;
+    } else {
+      userAvatarEl.textContent = userProfile.name.charAt(0).toUpperCase();
+    }
+    userNameEl.textContent = userProfile.name;
+    userEmailEl.textContent = 'Signed in';
+    signInBtnEl.hidden = true;
+    signOutBtnEl.hidden = false;
+  } else {
+    // Signed out — placeholder
+    userAvatarEl.classList.remove('signed-in');
+    userAvatarEl.innerHTML = defaultAvatarSvg;
+    userNameEl.textContent = 'Guest';
+    userEmailEl.textContent = 'Not signed in';
+    signInBtnEl.hidden = false;
+    signOutBtnEl.hidden = true;
+  }
+}
+
+function openProfilePanel() {
+  profilePanelEl.hidden = false;
+  profilePanelEl.classList.add('visible');
+  profileToggleEl.classList.add('open');
+}
+function closeProfilePanel() {
+  profilePanelEl.classList.remove('visible');
+  profileToggleEl.classList.remove('open');
+  // keep hidden=false during the .visible toggle since CSS handles display
+  profilePanelEl.hidden = true;
+}
+
+profileToggleEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (profilePanelEl.classList.contains('visible')) closeProfilePanel();
+  else openProfilePanel();
+});
+// Whole row also acts as toggle for nicer UX
+profileRowEl.addEventListener('click', (e) => {
+  if (e.target.closest('#profileToggle')) return;
+  if (profilePanelEl.classList.contains('visible')) closeProfilePanel();
+  else openProfilePanel();
+});
+
+document.addEventListener('click', (e) => {
+  if (!profilePanelEl.classList.contains('visible')) return;
+  if (!profilePanelEl.contains(e.target) && !e.target.closest('#profileRow')) {
+    closeProfilePanel();
+  }
+});
+
+/* ----- Sign in modal ----- */
+function openSignInModal() {
+  // Pre-fill from existing profile if present
+  nameInputEl.value = (userProfile && userProfile.name) ? userProfile.name : '';
+  avatarPreviewEl.dataset.dataUrl = (userProfile && userProfile.avatar) ? userProfile.avatar : '';
+  renderAvatarPreview();
+  signInModalEl.classList.add('visible');
+  setTimeout(() => nameInputEl.focus(), 50);
+}
+function closeSignInModal() {
+  signInModalEl.classList.remove('visible');
+  avatarInputEl.value = '';
+}
+function renderAvatarPreview() {
+  const url = avatarPreviewEl.dataset.dataUrl;
+  if (url) {
+    avatarPreviewEl.innerHTML = `<img src="${url}" alt="">`;
+  } else {
+    avatarPreviewEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="avatar-default-icon"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+  }
+}
+
+signInBtnEl.addEventListener('click', () => {
+  closeProfilePanel();
+  openSignInModal();
+});
+signOutBtnEl.addEventListener('click', () => {
+  userProfile = null;
+  saveProfile();
+  renderProfile();
+  closeProfilePanel();
+});
+
+avatarUploadEl.addEventListener('click', () => avatarInputEl.click());
+avatarInputEl.addEventListener('change', async (e) => {
+  const file = (e.target.files || [])[0];
+  if (!file) return;
+  try {
+    const dataUrl = await compressImageToDataURL(file, 200, 0.85);
+    avatarPreviewEl.dataset.dataUrl = dataUrl;
+    renderAvatarPreview();
+  } catch {}
+});
+
+signInCancelBtnEl.addEventListener('click', closeSignInModal);
+signInModalEl.addEventListener('click', (e) => {
+  if (e.target === signInModalEl) closeSignInModal();
+});
+
+signInSaveBtnEl.addEventListener('click', () => {
+  const name = nameInputEl.value.trim();
+  if (!name) { nameInputEl.focus(); return; }
+  userProfile = {
+    name,
+    avatar: avatarPreviewEl.dataset.dataUrl || ''
+  };
+  saveProfile();
+  renderProfile();
+  closeSignInModal();
+});
+
+// Allow Enter to submit name field
+nameInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); signInSaveBtnEl.click(); }
+});
+
+// ESC closes sign-in modal too
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeSignInModal();
+    closeProfilePanel();
+  }
+});
+
+// Initial render
+renderProfile();
+
+/* =====================================================================
+   Image preview lightbox — click any thumbnail in the user bubble (or in a
+   loaded history entry) to view it full-size.
+   ===================================================================== */
+const lightboxOverlayEl = $('lightboxOverlay');
+const lightboxImgEl = $('lightboxImg');
+const lightboxCloseEl = $('lightboxClose');
+
+function openLightbox(src) {
+  if (!src) return;
+  lightboxImgEl.src = src;
+  lightboxOverlayEl.classList.add('visible');
+}
+function closeLightbox() {
+  lightboxOverlayEl.classList.remove('visible');
+  setTimeout(() => { lightboxImgEl.src = ''; }, 220);
+}
+lightboxCloseEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeLightbox();
+});
+lightboxOverlayEl.addEventListener('click', closeLightbox);
+// The image itself shouldn't close on click (so users can zoom in without misfiring)
+lightboxImgEl.addEventListener('click', (e) => e.stopPropagation());
+
+// Event delegation: any image inside the user message bubble opens the lightbox.
+userMsgEl.addEventListener('click', (e) => {
+  const img = e.target.closest('.imgs img');
+  if (img) openLightbox(img.src);
+});
+
+// Esc closes lightbox (extends existing global keydown handler)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && lightboxOverlayEl.classList.contains('visible')) {
+    closeLightbox();
+  }
+});
+
+function loadHistoryEntry(h) {
+  activeHistoryId = h.id;
+  lastCaption = h.caption;
+  captionBodyEl.innerHTML = renderCaption(h.caption);
+  loadingRowEl.style.display = 'none';
+  outputEl.classList.add('visible');
+  document.body.classList.add('has-output');
+  threadEl.style.display = 'flex';
+
+  // Render the user message bubble: real image(s) when we have them, otherwise
+  // a subtle "loaded from history" note (covers older entries created before
+  // image persistence shipped).
+  userMsgEl.innerHTML = '';
+  if (h.images && h.images.length) {
+    const imgsWrap = document.createElement('div');
+    imgsWrap.className = 'imgs';
+    h.images.forEach(im => {
+      const img = document.createElement('img');
+      img.src = im.dataUrl;
+      img.alt = im.name || '';
+      img.loading = 'lazy';
+      imgsWrap.appendChild(img);
+    });
+    userMsgEl.appendChild(imgsWrap);
+
+    const pt = document.createElement('div');
+    pt.className = 'prompt-text';
+    pt.textContent = h.promptText || 'Generate a caption of these image';
+    userMsgEl.appendChild(pt);
+  } else {
+    const note = document.createElement('div');
+    note.className = 'prompt-text';
+    note.style.cssText = 'color:#6b7280;font-style:italic;font-size:13px';
+    note.textContent = 'Loaded from history — ' + h.title;
+    userMsgEl.appendChild(note);
+  }
+  renderHistory();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Hook into generation: observe `lastCaption` changes via a tiny polling check
+// (avoids modifying the engine's generate function). When a new caption is
+// detected, snapshot the current uploads to compressed thumbnails and save
+// them alongside the caption so history can re-render the original image.
+let _lastSeenCaption = '';
+function watchAndPushHistory() {
+  let attempts = 0;
+  const maxAttempts = 240; // ~60s window
+  const iv = setInterval(async () => {
+    attempts++;
+    if (lastCaption && lastCaption !== _lastSeenCaption) {
+      _lastSeenCaption = lastCaption;
+      clearInterval(iv);
+      try {
+        const imgs = await snapshotCurrentUploads();
+        const promptTxt = (textInput && textInput.value) ? textInput.value.trim() : '';
+        pushHistory(lastCaption, imgs, promptTxt);
+      } catch {
+        pushHistory(lastCaption, [], '');
+      }
+    } else if (attempts >= maxAttempts) {
+      clearInterval(iv);
+    }
+  }, 250);
+}
+// Bind to all entry points that trigger generation
+sendBtn.addEventListener('click', watchAndPushHistory);
+regenBtn.addEventListener('click', watchAndPushHistory);
+$('promptForm').addEventListener('submit', watchAndPushHistory);
+
+// Initial render
+renderHistory();
+
+/* ---------- Boot diagnostic (silent — never shown as config UI) ---------- */
+(async function boot() {
+  try {
+    if ('LanguageModel' in self) {
+      const a = await LanguageModel.availability({ expectedInputs: [{ type: 'image' }, { type: 'text' }] });
+      if (a === 'downloadable' || a === 'downloading') {
+        setStatus('On-device AI model is downloading on first use — this happens once.');
+      }
+    }
+  } catch {}
+})();
+</script>
+</body>
+</html>
